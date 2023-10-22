@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Define the name of the app you want to uninstall
+appName="Appname"
+
+# Function to display a Jamf Helper dialog for entering the admin password
+displayPasswordPrompt() {
+Logo=$(find /Applications/$appName.app/Contents/Resources -type f -name "*.icns")
+
+/Library/Application\ Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper -windowType utility -title "Uninstall $appName" -heading "Authentication Required" -description "Please enter your admin password to uninstall $appName:" -button1 "Uninstall" -defaultButton 1 -icon "$Logo"
+}
+
+# Check if the app exists
+if [ -e "/Applications/$appName.app" ]; then
+    # Display the password prompt and capture the password
+    passwordPromptResult=$(displayPasswordPrompt)
+
+    # Check if the user clicked "Uninstall"
+    if [ "$passwordPromptResult" == "0" ]; then
+        # Use the entered password to uninstall the app
+        password=$(osascript -e 'display dialog "Please enter your admin password to uninstall the app." default answer "" with hidden answer' -e 'text returned of result')
+        echo "$password" | sudo -S /bin/rm -rf "/Applications/$appName.app"
+        echo "Uninstalling $appName..."
+        echo "$appName has been uninstalled."
+    else
+        echo "Uninstallation of $appName was canceled."
+    fi
+else
+    echo "$appName is not installed."
+fi
