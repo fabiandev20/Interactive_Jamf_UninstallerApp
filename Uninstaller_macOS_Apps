@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the name of the app you want to uninstall
-appName="Appname"
+appName="Apptouninstall"
 
 # Function to display a Jamf Helper dialog for entering the admin password
 displayPasswordPrompt() {
