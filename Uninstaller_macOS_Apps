@@ -1,30 +1,72 @@
 #!/bin/bash
 
-# Define the name of the app you want to uninstall
-appName="Apptouninstall"
-
-# Function to display a Jamf Helper dialog for entering the admin password
-displayPasswordPrompt() {
-Logo=$(find /Applications/$appName.app/Contents/Resources -type f -name "*.icns")
-
-/Library/Application\ Support/JAMF/bin/jamfHelper.app/Contents/MacOS/jamfHelper -windowType utility -title "Uninstall $appName" -heading "Authentication Required" -description "Please enter your admin password to uninstall $appName:" -button1 "Uninstall" -defaultButton 1 -icon "$Logo"
-}
-
-# Check if the app exists
-if [ -e "/Applications/$appName.app" ]; then
-    # Display the password prompt and capture the password
-    passwordPromptResult=$(displayPasswordPrompt)
-
-    # Check if the user clicked "Uninstall"
-    if [ "$passwordPromptResult" == "0" ]; then
-        # Use the entered password to uninstall the app
-        password=$(osascript -e 'display dialog "Please enter your admin password to uninstall the app." default answer "" with hidden answer' -e 'text returned of result')
-        echo "$password" | sudo -S /bin/rm -rf "/Applications/$appName.app"
-        echo "Uninstalling $appName..."
-        echo "$appName has been uninstalled."
-    else
-        echo "Uninstallation of $appName was canceled."
-    fi
+# Define the AppleScript code for password prompt
+read -r -d '' applescript_password_prompt <<EOF
+set dialogText to "Uninstaller tool. Please enter your computer password:"
+set imagePath to POSIX file "/Library/Application Support/JAMF/JamfCustomApps/Logo.png"
+display dialog dialogText with title "Password Required" buttons {"Cancel", "OK"} default button "OK" default answer "" with icon file imagePath
+if button returned of result is "OK" then
+    text returned of result
 else
-    echo "$appName is not installed."
+    error "User cancelled"
+end if
+EOF
+
+# Execute the AppleScript code to prompt for password
+password=$(osascript -e "$applescript_password_prompt")
+
+# Check if user cancelled the password prompt
+if [ $? -ne 0 ]; then
+    echo "User cancelled the password prompt. Exiting."
+    exit 1
 fi
+
+# Define the AppleScript code for application selection
+read -r -d '' applescript_code <<EOF
+set appList to {}
+
+tell application "System Events"
+    set appFolder to folder "/Applications" of startup disk
+    set appFiles to every file of appFolder whose name extension is "app"
+    repeat with appFile in appFiles
+        set appName to name of appFile
+        set end of appList to (text 1 thru -5 of appName) as text
+    end repeat
+end tell
+
+set selectedApp to choose from list appList with prompt "Select an application:" without multiple selections allowed
+
+if selectedApp is not false then
+    set selectedApp to selectedApp as text
+    set appNameWithExtension to selectedApp & ".app"
+    set appName to selectedApp
+    
+    -- Check if the application is currently running
+    tell application "System Events"
+        if exists process appName then
+            set confirmQuit to display dialog "The application '" & selectedApp & "' is currently running. Do you want to force quit it before uninstalling?" buttons {"Cancel", "Force Quit"} default button "Force Quit"
+            if button returned of confirmQuit is "Force Quit" then
+                do shell script "echo '$password' | sudo -S killall -9 '" & appName & "'"
+                display dialog "The application '" & selectedApp & "' has been force quit."
+            else
+                display dialog "Uninstallation of '" & selectedApp & "' canceled."
+                return
+            end if
+        end if
+    end tell
+    
+    -- Uninstall the application
+    set confirmUninstall to display dialog "Are you sure you want to uninstall '" & selectedApp & "'?" buttons {"Cancel", "Uninstall"} default button "Cancel"
+    if button returned of confirmUninstall is "Uninstall" then
+        do shell script "echo '$password' | sudo -S rm -rf '/Applications/" & appNameWithExtension & "'"
+        display dialog "'" & selectedApp & "' has been uninstalled successfully."
+    else
+        display dialog "Uninstallation of '" & selectedApp & "' canceled."
+    end if
+else
+    display dialog "No application selected."
+end if
+EOF
+
+# Execute the AppleScript code using osascript
+osascript -e "$applescript_code"
